@@ -1,7 +1,12 @@
 import axios from 'axios';
 import console from 'console';
 
+const note = (...args) => console.error(...args);
+const say = (...args) => console.log(...args);
+const output = (...args) => process.stdout.write(args.join(', ') + "\n");
+
 const inputAddresses = [
+  '# Addresses that should be valid',
   '100 Harris Street, Pyrmont, NSW 2009',
   '146 Homebush Road, Strathfield, NSW 2135',
   '9/11-13 Clarence Street, Burwood, NSW 2134',
@@ -13,14 +18,20 @@ const inputAddresses = [
   '1 Cayambe Court, Tamborine Mountain',
   '37 Daphne Street, Botany NSW',
   '1/37 Daphne Street, Botany NSW',
+  '20/37 Daphne Street, Botany NSW',
   '11 Valentine street, Yagoona, NSW 2199',
   '1 Griffiths street, Blacktown NSW 2148',
   '6 Griffiths street, Blacktown NSW 2148',
   '179 Dunmore street, Wentworthville',
-  'Deliberately bad addresses we want to fail',
+  '34 Northwater Drive, Hope Island',
+  '26 Gold Street, Banyo',
+
+  '# Formerly failing addresses we want to pass',
+  '9/11-1300 Clarence Street, Burwood, NSW 2134',
+
+  '# Deliberately bad addresses we want to fail',
   '100 Harros Street, Pyrmont, NSW 2009',
   '100 Undefined Street, Pyrmont, NSW 2009',
-  '9/11-1300 Clarence Street, Burwood, NSW 2134',
   '9/11-13 Clarence, Burwood, NSW 2134',
   '9/11-13 Clarence Road, Burwood, NSW 2134',
   '9-130000 Griffiths, Blacktown NSW 2148',
@@ -59,12 +70,18 @@ const getQuery = (address, advanced) => `query {
     }
     isSuccessful
     isExactMatch
+    isStreetLevelMatch
     matchMethod
     matchLevel
   }
 }`;
 
 const getData = async (address, advanced) => {
+  const isComment = address.match(/^# (.*)$/);
+  if (isComment) {
+    return Promise.resolve({ header: isComment[1] });
+  }
+
   return axios
     .post('http://localhost:5000/gql', {
       query: getQuery(address, advanced),
@@ -72,14 +89,18 @@ const getData = async (address, advanced) => {
     .then(res => {
       try {
         const gqlResponse = res.data.data.geocode;
-        console.log('Got data for', address);
+        if (gqlResponse) {
+          note('Got data for', address);
+        } else {
+          note('Got null data for', address, res.data);
+        }
         return gqlResponse;
       } catch (e) {
-        console.log('ERR:', e, res);
+        note('ERR:', e, res);
         return {};
       }
     })
-    .catch(err => console.log('ERROR', err));
+    .catch(err => note('ERROR', err));
 };
 
 const processAll = async addresses => {
@@ -87,16 +108,21 @@ const processAll = async addresses => {
     addresses.map(address => getData(address, true))
   );
   console.log(
-    'Input address, isSuccessful, isExactMatch, matchMethod, matchLevel, consolidatedScore, streetNumberScore, streetNameScore, streetTypeScore, streetSuffixScore, suburbScore, stateScore, postcodeScore, countryScore, unit, streetType, streetAddress, street, streetSuffix, locality, state, postcode'
+    'Input address, isSuccessful, isExactMatch, isStreetLevelMatch, matchMethod, matchLevel, consolidatedScore, streetNumberScore, streetNameScore, streetTypeScore, streetSuffixScore, suburbScore, stateScore, postcodeScore, countryScore, unit, streetType, streetAddress, street, streetSuffix, locality, state, postcode'
   );
   for (let i = 0; i < addresses.length; i++) {
     const fields = [addresses[i]];
     if (results[i] == null) {
-      console.log(`"${addresses[i]}", "error"`);
+      output(`"${addresses[i]}", "error"`);
+      continue;
+    }
+    if (results[i].header) {
+      output(`"${results[i].header}"`);
       continue;
     }
     fields.push(results[i]?.isSuccessful);
     fields.push(results[i]?.isExactMatch);
+    fields.push(results[i]?.isStreetLevelMatch);
     fields.push(results[i]?.matchMethod);
     fields.push(results[i]?.matchLevel);
 
@@ -119,8 +145,8 @@ const processAll = async addresses => {
     fields.push(results[i]?.address?.state);
     fields.push(results[i]?.address?.postcode);
 
-    console.log(fields.map(f => `"${f}"`).join(', '));
+    output(fields.map(f => `"${f}"`).join(', '));
   }
 };
 
-processAll(inputAddresses).then(() => console.log('Done.'));
+processAll(inputAddresses).then(() => note('Done.'));
