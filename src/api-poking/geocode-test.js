@@ -2,10 +2,7 @@ import axios from 'axios';
 import console from 'console';
 require('dotenv-safe').config();
 
-const note = (...args) => console.error(...args);
-const say = (...args) => console.log(...args);
-const output = (...args) => process.stdout.write(args.join(', ') + "\n");
-const die = (...args) => { console.error('Died:', ...args); process.exit(1) };
+import { note, say, output, die } from 'util/cli';
 
 const inputAddresses = [
   '# Addresses that should be valid',
