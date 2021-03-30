@@ -1,9 +1,11 @@
 import axios from 'axios';
 import console from 'console';
+require('dotenv-safe').config();
 
 const note = (...args) => console.error(...args);
 const say = (...args) => console.log(...args);
 const output = (...args) => process.stdout.write(args.join(', ') + "\n");
+const die = (...args) => { console.error('Died:', ...args); process.exit(1) };
 
 const inputAddresses = [
   '# Addresses that should be valid',
@@ -76,23 +78,61 @@ const getQuery = (address, advanced) => `query {
   }
 }`;
 
+
+const API = axios.create({
+  baseURL: 'http://localhost:5000',
+  // baseUrl: 'https://s-server-gfd.pricefinder.com.au',
+});
+if (!API) { die("Couldn't create API object"); }
+
+API.interceptors.request.use(
+  config => {
+    const newConfig = { ...config };
+    newConfig.metadata = { startTime: new Date() };
+    newConfig.headers.Authorization = `Bearer ${process.env.PORTAL_BEARER_TOKEN}`;
+    return newConfig;
+  },
+  error => {
+    return Promise.reject(error);
+  }
+);
+API.interceptors.response.use(
+  response => {
+    const newRes = { ...response };
+    newRes.config ||= {};
+    newRes.config.metadata ||= {};
+    newRes.config.metadata.endTime = new Date();
+    newRes.duration = newRes.config.metadata.endTime - newRes.config.metadata.startTime;
+    return newRes;
+  },
+  error => {
+    const newError = { ...error };
+    newError.config ||= {};
+    newError.config.metadata ||= {};
+    newError.config.metadata.endTime = new Date();
+    newError.duration = newError.config.metadata.endTime - newError.config.metadata.startTime;
+    return Promise.reject(newError);
+  }
+);
+
 const getData = async (address, advanced) => {
   const isComment = address.match(/^# (.*)$/);
   if (isComment) {
     return Promise.resolve({ header: isComment[1] });
   }
 
-  return axios
-    .post('http://localhost:5000/gql', {
+  return API
+    .post('/gql', {
       query: getQuery(address, advanced),
     })
     .then(res => {
       try {
         const gqlResponse = res.data.data.geocode;
         if (gqlResponse) {
-          note('Got data for', address);
+          note(`Got data for ${address} in ${res.duration}ms`);
+          gqlResponse.duration = res.duration;
         } else {
-          note('Got null data for', address, res.data);
+          note(`Got null data for ${address} in ${res.duration}ms`, res.data);
         }
         return gqlResponse;
       } catch (e) {
@@ -108,7 +148,7 @@ const processAll = async addresses => {
     addresses.map(address => getData(address, true))
   );
   console.log(
-    'Input address, isSuccessful, isExactMatch, isStreetLevelMatch, matchMethod, matchLevel, consolidatedScore, streetNumberScore, streetNameScore, streetTypeScore, streetSuffixScore, suburbScore, stateScore, postcodeScore, countryScore, unit, streetType, streetAddress, street, streetSuffix, locality, state, postcode'
+    'Input address, isSuccessful, duration, isExactMatch, isStreetLevelMatch, matchMethod, matchLevel, consolidatedScore, streetNumberScore, streetNameScore, streetTypeScore, streetSuffixScore, suburbScore, stateScore, postcodeScore, countryScore, unit, streetType, streetAddress, street, streetSuffix, locality, state, postcode'
   );
   for (let i = 0; i < addresses.length; i++) {
     const fields = [addresses[i]];
@@ -121,6 +161,7 @@ const processAll = async addresses => {
       continue;
     }
     fields.push(results[i]?.isSuccessful);
+    fields.push(results[i]?.duration);
     fields.push(results[i]?.isExactMatch);
     fields.push(results[i]?.isStreetLevelMatch);
     fields.push(results[i]?.matchMethod);
